@@ -1,19 +1,29 @@
+
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  # ← agregar esto
 from pydantic import BaseModel
 
 app = FastAPI()
+
+# ← agregar este bloque
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],        # en producción pon tu dominio específico
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class ChatMessage(BaseModel):
     user_id: str
     message: str
 
-
-# ----------- BOT CONVERSACIONAL -----------
-
+# -------- BOT CONVERSACIONAL --------
 sessions = {}
 
-def process_message(message, user_id):
-
+def process_message(message: str, user_id: str) -> str:
     if user_id not in sessions:
         sessions[user_id] = {"step": 0, "ticket": {}}
 
@@ -57,17 +67,13 @@ def process_message(message, user_id):
     elif state["step"] == 7:
         ticket["telefono"] = message
         state["step"] = 8
-        return "¿Puedes describir evidencia o detalles adicionales?"
+        return "Describe evidencia o detalles adicionales"
 
     elif state["step"] == 8:
         ticket["evidencia"] = message
-
-        # 👇 AQUÍ puedes integrar PowerApps después
         print("🎟️ Ticket generado:", ticket)
-
         sessions.pop(user_id)
-
-        return "✅ Ticket creado correctamente y enviado al sistema"
+        return "✅ Ticket listo. (En el MVP, el portal se usa manualmente para finalizar)."
 
     return "No entendí el mensaje"
 
@@ -75,3 +81,8 @@ def process_message(message, user_id):
 def chat(data: ChatMessage):
     response = process_message(data.message, data.user_id)
     return {"response": response}
+
+# (Opcional) Para evitar 404 en /
+@app.get("/")
+def root():
+    return {"status": "ok"}

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>SupportSync Chat</title>
+    <style>
+        body {
+            font-family: Arial;
+            background-color: #ece5dd;
+            display: flex;
+            justify-content: center;
+            margin-top: 50px;
+        }
+
+        .chat-container {
+            width: 350px;
+            height: 500px;
+            background: white;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-box {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+        }
+
+        .message {
+            padding: 8px;
+            margin: 5px;
+            border-radius: 5px;
+            max-width: 70%;
+        }
+
+        .user {
+            background-color: #dcf8c6;
+            align-self: flex-end;
+        }
+
+        .bot {
+            background-color: #f1f0f0;
+            align-self: flex-start;
+        }
+
+        .input-box {
+            display: flex;
+            padding: 10px;
+        }
+
+        input {
+            flex: 1;
+            padding: 8px;
+        }
+
+        button {
+            padding: 8px;
+            background: green;
+            color: white;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="chat-box" id="chat"></div>
+
+    <div class="input-box">
+        <input id="message" placeholder="Escribe un mensaje..." />
+        <button onclick="sendMessage()">Enviar</button>
+    </div>
+</div>
+
+<script>
+    const user_id = "1";
+
+    function addMessage(text, sender) {
+        const chat = document.getElementById("chat");
+
+        const msg = document.createElement("div");
+        msg.className = "message " + sender;
+        msg.innerText = text;
+
+        chat.appendChild(msg);
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById("message");
+        const message = input.value;
+
+        if (!message) return;
+
+        addMessage(message, "user");
+        input.value = "";
+
+        try {
+            const response = await fetch("http://127.0.0.1:8000/chat", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    user_id: user_id,
+                    message: message
+                })
+            });
+
+            const data = await response.json();
+
+            addMessage(data.response, "bot");
+
+        } catch (error) {
+            addMessage("Error conectando con el backend", "bot");
+        }
+    }
+</script>
+
+</body>
+</html>
