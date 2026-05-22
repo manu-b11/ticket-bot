@@ -1,8 +1,14 @@
 from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
+from database import engine, get_db
+from models import Ticket, Base
+from schemas import TicketCreate, TicketResponse
+from sqlalchemy.orm import Session
+from fastapi import Depends
+
 from pydantic import BaseModel
 
-import uuid
+
 import requests
 from datetime import datetime
 
@@ -12,10 +18,11 @@ from rag_engine import cargar_kb, buscar_respuesta
 
 # ---------------- APP ----------------
 app = FastAPI()
+Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # en producción: tu dominio
+    allow_origins=["*"],  # en producción: dominio
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,16 +42,9 @@ class ChatMessage(BaseModel):
 
 
 # ---------------- STORAGE (MVP en memoria) ----------------
-sessions = {}        # user_id -> {"step": int, "ticket": dict}
-tickets = {}         # numero_caso -> ticket dict
+sessions = {}        # user_id -> {"step": int, "ticket": dict}        
 notifications = {}   # user_id -> [ {ts,text}, ... ]
 
-# Contadores (id y numero_caso)
-COUNTERS = {
-    "id": 0,
-    "year": datetime.now().year,
-    "seq": 0
-}
 
 
 # ---------------- HELPERS ----------------
@@ -57,19 +57,6 @@ def notify(user_id: str, text: str):
         "text": text
     })
 
-def next_id() -> int:
-    COUNTERS["id"] += 1
-    return COUNTERS["id"]
-
-def next_numero_caso() -> str:
-    y = datetime.now().year
-    # reiniciar contador si cambia el año
-    if COUNTERS["year"] != y:
-        COUNTERS["year"] = y
-        COUNTERS["seq"] = 0
-    COUNTERS["seq"] += 1
-    return f"NET-{y}-{COUNTERS['seq']:03d}"
-
 def valid_nonempty(s: str, min_len: int = 2) -> bool:
     return bool(s.strip()) and len(s.strip()) >= min_len
 
@@ -80,9 +67,6 @@ def valid_phone(s: str) -> bool:
     return s.isdigit() and 7 <= len(s) <= 15
 
 
-# ---------------- IA para validar prioridad (Ollama local) ----------------
-# Nota: esto valida la prioridad elegida contra la descripción y el tipo.
-# Usa el modelo local (por ejemplo qwen3.5:0.8b) a través del endpoint Ollama.
 OLLAMA_GENERATE_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen3.5:0.8b"
 
@@ -160,7 +144,7 @@ def ia_sugerir_prioridad(descripcion: str, tipo: str) -> dict:
 
 
 # ---------------- BOT LOGIC ----------------
-def process_message(message: str, user_id: str) -> str:
+def process_message(message: str, user_id: str, db: Session) -> str:
     msg = (message or "").strip()
 
     # FAQ con RAG (base delimitada)
@@ -332,54 +316,56 @@ def process_message(message: str, user_id: str) -> str:
     # ---- STEP 12: confirmación final → generar ticket con tu JSON
     if step == 12:
         low = msg.lower()
+
         if low not in {"sí", "si", "no"}:
             return "⚠️ Responde 'sí' o 'no'."
+
         if low == "no":
             sessions.pop(user_id, None)
             return "❌ Ticket cancelado."
 
-        # Generar IDs
-        tid = next_id()
-        numero_caso = next_numero_caso()
 
-        # Construir ticket EXACTO + extras (numero_contacto, caso_previo)
+        # Construir ticket final
         final_ticket = {
             "tipo": ticket.get("tipo", "Software"),
-            "numero_caso": numero_caso,
             "titulo": ticket.get("titulo", ""),
             "descripcion": ticket.get("descripcion", ""),
             "nombre": ticket.get("nombre", ""),
             "estado": "Abierto",
             "cliente": ticket.get("cliente", ""),
-            "id": tid,
             "prioridad": ticket.get("prioridad", "Media"),
             "contacto": ticket.get("contacto", ticket.get("nombre", "")),
             "cargo": ticket.get("cargo", "")
         }
 
-        # Guardar extras (no rompen tu JSON principal)
+        # Extras opcionales
         if "numero_contacto" in ticket:
             final_ticket["numero_contacto"] = ticket["numero_contacto"]
+
         final_ticket["caso_previo"] = ticket.get("caso_previo")
 
-        tickets[numero_caso] = final_ticket
+       # Guardar ticket usando helper reutilizable
+        nuevo_ticket = crear_ticket_db(final_ticket, db)
 
-        # Notificación inicial (simula WhatsApp)
-        notify(user_id, f"✅ Caso {numero_caso} recibido. Estado: Abierto")
+        # Simular notificación
+        notify(
+            user_id,
+            f"✅ Caso {nuevo_ticket.numero_caso} recibido. Estado: Abierto"
+        )
 
+        # Limpiar sesión
         sessions.pop(user_id, None)
 
-        # Respuesta final (resumen ya incluye prioridad al final del flujo)
+        # Respuesta final
         return (
             "✅ Ticket creado correctamente.\n"
-            f"🧾 Número de caso: {numero_caso}\n"
+            f"🧾 Número de caso: {nuevo_ticket.numero_caso}\n"
             "📌 Estado: Abierto\n\n"
             "Te notificaré cambios de estado."
         )
 
     return "No entendí. Escribe tu problema o una pregunta (FAQ)."
-
-
+    
 def ask_priority_last(ticket: dict) -> str:
     """
     Este mensaje es lo último antes del resumen.
@@ -414,11 +400,47 @@ def build_ticket_summary(ticket: dict, include_priority: bool = True) -> str:
 
 
 # ---------------- ENDPOINTS ----------------
-@app.post("/chat")
-def chat(data: ChatMessage):
-    response = process_message(data.message, data.user_id)
-    return {"response": response}
 
+def crear_ticket_db(ticket_data: dict, db: Session):
+
+    current_year = datetime.now().year
+
+    nuevo_ticket = Ticket(
+        titulo=ticket_data["titulo"],
+        cliente=ticket_data["cliente"],
+        tipo=ticket_data["tipo"],
+        prioridad=ticket_data["prioridad"],
+        descripcion=ticket_data["descripcion"],
+        contacto=ticket_data["contacto"],
+        nombre=ticket_data["nombre"],
+        cargo=ticket_data["cargo"],
+        estado="Abierto"
+    )
+
+    db.add(nuevo_ticket)
+    db.commit()
+    db.refresh(nuevo_ticket)
+
+    nuevo_ticket.numero_caso = (
+        f"NET-{current_year}-{nuevo_ticket.id:03d}"
+    )
+
+    db.commit()
+    db.refresh(nuevo_ticket)
+
+    return nuevo_ticket
+
+
+@app.post("/chat")
+def chat(data: ChatMessage, db: Session = Depends(get_db)):
+
+    response = process_message(
+        data.message,
+        data.user_id,
+        db
+    )
+
+    return {"response": response}
 
 @app.get("/notifications/{user_id}")
 def get_notifications(user_id: str):
@@ -429,33 +451,67 @@ def get_notifications(user_id: str):
 
 
 @app.get("/ticket/{numero_caso}")
-def get_ticket(numero_caso: str):
-    if numero_caso not in tickets:
-        return {"ok": False, "error": "numero_caso no existe"}
-    return {"ok": True, "ticket": tickets[numero_caso]}
+def get_ticket(numero_caso: str, db: Session = Depends(get_db)):
 
+    ticket = db.query(Ticket).filter(
+        Ticket.numero_caso == numero_caso
+    ).first()
+
+    if not ticket:
+        return {
+            "ok": False,
+            "error": "Ticket no encontrado"
+        }
+
+    return {
+        "ok": True,
+        "ticket": ticket
+    }
 
 @app.post("/ticket/{numero_caso}/status")
-def update_status(numero_caso: str, payload: dict = Body(...)):
-    """
-    Simula avance y notifica.
-    payload: {"estado": "Abierto|En progreso|Resuelto|Escalado", "user_id": "1"}
-    """
-    if numero_caso not in tickets:
-        return {"ok": False, "error": "numero_caso no existe"}
+def update_status(
+    numero_caso: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db)
+):
 
     estado = (payload.get("estado") or "").strip()
     user_id = (payload.get("user_id") or "").strip()
 
     if not estado:
         return {"ok": False, "error": "Falta estado"}
+
     if not user_id:
         return {"ok": False, "error": "Falta user_id"}
 
-    tickets[numero_caso]["estado"] = estado
-    notify(user_id, f"🔔 Caso {numero_caso} actualizado. Estado: {estado}")
+    # Buscar ticket en SQLite
+    ticket = db.query(Ticket).filter(
+        Ticket.numero_caso == numero_caso
+    ).first()
 
-    return {"ok": True, "numero_caso": numero_caso, "estado": estado}
+    if not ticket:
+        return {
+            "ok": False,
+            "error": "Ticket no encontrado"
+        }
+
+    # Actualizar estado
+    ticket.estado = estado
+
+    db.commit()
+    db.refresh(ticket)
+
+    # Notificación
+    notify(
+        user_id,
+        f"🔔 Caso {numero_caso} actualizado. Estado: {estado}"
+    )
+
+    return {
+        "ok": True,
+        "numero_caso": numero_caso,
+        "estado": estado
+    }
 
 
 @app.post("/handoff")
@@ -473,3 +529,78 @@ def handoff(payload: dict = Body(...)):
 @app.get("/")
 def root():
     return {"status": "ok"}
+
+# -------- CRUD DE TICKETS --------
+
+# Crear un nuevo ticket usando helper reutilizable
+@app.post("/tickets")
+def create_ticket(
+    ticket: TicketCreate,
+    db: Session = Depends(get_db)
+):
+
+    ticket_data = {
+        "titulo": ticket.titulo,
+        "cliente": ticket.cliente,
+        "tipo": ticket.tipo,
+        "prioridad": ticket.prioridad,
+        "descripcion": ticket.descripcion,
+        "contacto": ticket.contacto,
+        "nombre": ticket.nombre,
+        "cargo": ticket.cargo
+    }
+
+    nuevo_ticket = crear_ticket_db(ticket_data, db)
+
+    return nuevo_ticket
+
+
+
+# Obtener todos los tickets
+@app.get("/tickets")
+def get_tickets(db: Session = Depends(get_db)):
+
+    tickets = db.query(Ticket).all()
+
+    return tickets
+
+# Obtener un ticket por ID
+@app.get("/tickets/{ticket_id}")
+def get_ticket_by_id(ticket_id: int, db: Session = Depends(get_db)):
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+
+    if not ticket:
+        return {"error": "Ticket no encontrado"}
+
+    return ticket
+
+# Actualizar el estado de un ticket
+@app.put("/tickets/{ticket_id}")
+def update_ticket(ticket_id: int, estado: str, db: Session = Depends(get_db)):
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+
+    if not ticket:
+        return {"error": "Ticket no encontrado"}
+
+    ticket.estado = estado
+
+    db.commit()
+    db.refresh(ticket)
+
+    return ticket
+
+# Eliminar un ticket
+@app.delete("/tickets/{ticket_id}")
+def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+
+    if not ticket:
+        return {"error": "Ticket no encontrado"}
+
+    db.delete(ticket)
+    db.commit()
+
+    return {"message": "Ticket eliminado"}
