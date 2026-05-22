@@ -1,0 +1,6 @@
+
+La prioridad de los tickets se clasifica en:
+
+Alta: cuando el sistema está caído o no hay servicio.
+Media: cuando hay fallas parciales.
+Baja: solicitudes o consultas no urgentes.

@@ -1,0 +1,3 @@
+
+El equipo de soporte NV1 recibe los tickets inicialmente.
+Si el caso es complejo, se escala a niveles superiores.
