@@ -1,0 +1,32 @@
+Cisco
+
+Cisco ofrece soluciones empresariales de redes, conectividad y seguridad.
+
+Cisco AnyConnect:
+Herramienta VPN utilizada para acceso remoto seguro.
+
+Problemas comunes:
+- VPN no conecta
+- Error de autenticación
+- MFA inválido
+- Conexión intermitente
+- Sin acceso a recursos internos
+
+Soluciones básicas:
+1. Reiniciar Cisco AnyConnect
+2. Verificar conexión a internet
+3. Validar usuario y contraseña
+4. Verificar autenticación MFA
+5. Reconectar la VPN
+6. Contactar soporte si el problema continúa
+
+Switches Cisco:
+Problemas frecuentes:
+- Pérdida de conectividad
+- Puertos caídos
+- Lentitud de red
+
+Validaciones básicas:
+1. Revisar estado de puertos
+2. Verificar cableado
+3. Reiniciar equipos si es autorizado

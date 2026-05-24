@@ -1,5 +1,0 @@
-Los problemas más comunes incluyen:
-
-- Caída de red
-- No acceso a sistemas
-- Problemas de software

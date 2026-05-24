@@ -1,0 +1,41 @@
+Problemas básicos de soporte
+
+Internet lento:
+- Reiniciar router o punto de acceso
+- Verificar cables de red
+- Validar conexión a internet
+
+No puedo iniciar sesión:
+- Verificar usuario y contraseña
+- Restablecer contraseña
+- Validar bloqueo de cuenta
+
+VPN no conecta:
+- Verificar conexión a internet
+- Reiniciar cliente VPN
+- Validar credenciales
+
+Equipo lento:
+- Reiniciar equipo
+- Cerrar aplicaciones innecesarias
+- Verificar espacio disponible
+
+Correo corporativo no funciona:
+- Revisar conexión
+- Verificar credenciales
+- Confirmar estado del servicio
+
+WiFi inestable:
+- Acercarse al punto de acceso
+- Reiniciar adaptador WiFi
+- Revisar interferencias
+
+Impresora no responde:
+- Verificar conexión
+- Reiniciar impresora
+- Validar estado del dispositivo
+
+Pantalla azul o errores del sistema:
+- Reiniciar equipo
+- Validar actualizaciones
+- Escalar si el problema persiste

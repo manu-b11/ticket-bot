@@ -1,0 +1,18 @@
+Ekahau
+
+Ekahau es una herramienta utilizada para análisis, diseño y optimización de redes WiFi.
+
+Problemas comunes:
+- Baja cobertura WiFi
+- Señal débil
+- Interferencias
+- Problemas de roaming
+- Puntos de acceso saturados
+
+Soluciones básicas:
+1. Verificar cobertura inalámbrica
+2. Revisar interferencias
+3. Reiniciar puntos de acceso
+4. Validar configuración WiFi
+5. Revisar ubicación de access points
+6. Contactar soporte si el problema continúa

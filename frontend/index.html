@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Netmask</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="logo">
+            <div class="logo-icon">🛡️</div>
+            <div>
+              <div class="logo-text">Netmask</div>
+              <div class="logo-sub">Mesa de ayuda</div>
+            </div>
+          </div>
+          <div class="search-box">
+            <span>🔍</span>
+            <input type="text" placeholder="Buscar conversación…" />
+          </div>
+        </div>
+        <div class="sidebar-section">Activos</div>
+        <div class="conv-list">
+          <div class="conv-item active">
+            <div class="conv-avatar">🤖</div>
+            <div class="conv-info">
+              <div class="conv-name">Agente Netmask</div>
+              <div class="conv-prev" id="sidebar-last">Sistema de soporte</div>
+            </div>
+            <div class="conv-meta">
+              <div class="conv-time" id="sidebar-time">ahora</div>
+            </div>
+          </div>
+        </div>
+        <div class="sidebar-footer">
+          <div class="user-card">
+            <div class="user-avatar">👤</div>
+            <div class="user-info">
+              <div class="user-name" id="sidebar-user">Usuario</div>
+              <div class="user-role">Cliente</div>
+            </div>
+            <div class="status-dot"></div>
+          </div>
+        </div>
+      </aside>
+      <div class="chat-area">
+        <header class="chat-header">
+          <div class="bot-avatar">
+            🤖
+            <div class="online-ring"></div>
+          </div>
+          <div class="chat-header-info">
+            <div class="chat-header-name">Agente Netmask</div>
+            <div class="chat-header-status">En línea</div>
+          </div>
+        </header>
+        <div class="messages-wrap" id="messages">
+          <div class="date-divider"><span>HOY</span></div>
+        </div>
+        <div
+          class="typing-indicator"
+          id="typing"
+          style="display: none; padding: 0 24px 8px"
+        >
+          <div class="msg-avatar">🤖</div>
+          <div class="typing-bubble">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+          </div>
+        </div>
+        <div class="input-area">
+          <div class="input-wrapper">
+            <textarea
+              id="msg-input"
+              rows="1"
+              placeholder="Escribe un mensaje…"
+            ></textarea>
+            <button class="send-btn" onclick="sendMessage()">➤</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>

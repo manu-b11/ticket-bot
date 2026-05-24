@@ -1,0 +1,16 @@
+Nozomi
+
+Nozomi Networks es una plataforma de monitoreo y seguridad para infraestructura industrial y entornos OT.
+
+Problemas comunes:
+- Alertas de monitoreo
+- Sensores desconectados
+- Pérdida de visibilidad de red
+- Dispositivos no detectados
+
+Soluciones básicas:
+1. Validar conectividad de red
+2. Revisar sensores y dispositivos
+3. Reiniciar monitoreo si es permitido
+4. Validar configuración de red
+5. Escalar a soporte especializado si es necesario

@@ -1,0 +1,21 @@
+Fortinet
+
+Fortinet ofrece soluciones de firewall, VPN y ciberseguridad empresarial.
+
+Problemas comunes:
+- VPN caída
+- Acceso bloqueado
+- Lentitud de red
+- Firewall bloqueando aplicaciones
+- Fallas de autenticación
+
+Soluciones básicas:
+1. Verificar conexión a internet
+2. Validar reglas de acceso
+3. Reiniciar conexión VPN
+4. Verificar credenciales
+5. Revisar políticas del firewall
+6. Contactar soporte si el problema persiste
+
+FortiGate:
+Dispositivo de firewall empresarial utilizado para protección y control de red.
