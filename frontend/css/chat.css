@@ -55,8 +55,7 @@
   --radius-bubble: 16px;
   --radius-sm: 10px;
 
-  --font-ui: "Sora", sans-serif;
-  --font-mono: "IBM Plex Mono", monospace;
+  --font-ui: "Inter", sans-serif;
 
   --sidebar-w: 280px;
   --header-h: 62px;

@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Netmask CRM</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../css/crm.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-logo">
+          <div class="sidebar-logo-icon">🛡️</div>
+          <div>
+            <div class="sidebar-logo-text">Netmask</div>
+            <div class="sidebar-logo-sub">CRM / Soporte</div>
+          </div>
+        </div>
+        <nav class="nav">
+          <a class="nav-item active">
+            <span class="nav-icon">🎫</span>
+            Tickets
+            <span class="nav-badge" id="nav-badge-tickets">—</span>
+          </a>
+          <a class="nav-item" href="index.html">
+            <span class="nav-icon">💬</span>
+            Chat bot
+          </a>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="user-pill">
+            <div class="user-av">👤</div>
+            <div>
+              <div class="user-name">Agente</div>
+              <div class="user-role">Netmask Support</div>
+            </div>
+            <div class="user-status"></div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main">
+        <div class="topbar">
+          <div class="topbar-left">
+            <div class="topbar-title">Gestión de Tickets</div>
+            <div class="topbar-sub" id="topbar-sub">Cargando...</div>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn btn-ghost" onclick="loadTickets()">
+              <span>⟳</span> Actualizar
+            </button>
+          </div>
+        </div>
+
+        <div class="content">
+          <div class="stats-row">
+            <div class="stat-card">
+              <div class="stat-label">Total tickets</div>
+              <div class="stat-value" id="stat-total">—</div>
+              <div class="stat-bar">
+                <div class="stat-bar-fill total"></div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Abiertos</div>
+              <div class="stat-value accent" id="stat-abiertos">—</div>
+              <div class="stat-bar">
+                <div class="stat-bar-fill abierto"></div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">En Proceso</div>
+              <div class="stat-value warn" id="stat-proceso">—</div>
+              <div class="stat-bar">
+                <div class="stat-bar-fill proceso"></div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Cerrados</div>
+              <div class="stat-value ok" id="stat-cerrados">—</div>
+              <div class="stat-bar">
+                <div class="stat-bar-fill cerrado"></div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Prioridad Alta</div>
+              <div class="stat-value danger" id="stat-alta">—</div>
+              <div class="stat-bar"><div class="stat-bar-fill alta"></div></div>
+            </div>
+          </div>
+
+          <div class="table-section">
+            <div class="table-header">
+              <div class="search-field">
+                <span class="search-icon">🔍</span>
+                <input
+                  type="text"
+                  id="search-input"
+                  placeholder="Buscar por caso, título o cliente…"
+                  oninput="filterTickets()"
+                />
+              </div>
+              <div class="filter-group">
+                <select
+                  class="filter-select"
+                  id="filter-estado"
+                  onchange="filterTickets()"
+                >
+                  <option value="">Todos los estados</option>
+                  <option value="Abierto">Abierto</option>
+                  <option value="En Proceso">En Proceso</option>
+                  <option value="Cerrado">Cerrado</option>
+                </select>
+                <select
+                  class="filter-select"
+                  id="filter-prioridad"
+                  onchange="filterTickets()"
+                >
+                  <option value="">Todas las prioridades</option>
+                  <option value="Alta">Alta</option>
+                  <option value="Media">Media</option>
+                  <option value="Baja">Baja</option>
+                </select>
+                <select
+                  class="filter-select"
+                  id="filter-tipo"
+                  onchange="filterTickets()"
+                >
+                  <option value="">Todos los tipos</option>
+                  <option value="Software">Software</option>
+                  <option value="Hardware">Hardware</option>
+                  <option value="Red">Red</option>
+                  <option value="Acceso">Acceso</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>N° Caso</th>
+                    <th>Título / Cliente</th>
+                    <th>Tipo</th>
+                    <th>Prioridad</th>
+                    <th>Estado</th>
+                    <th>Fecha</th>
+                  </tr>
+                </thead>
+                <tbody id="tickets-tbody">
+                  <tr class="loading-row">
+                    <td colspan="6">Cargando tickets…</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="pagination" id="pagination" style="display: none">
+                <span class="pagination-info" id="pag-info"></span>
+                <div class="pagination-btns">
+                  <button
+                    class="page-btn"
+                    id="pag-prev"
+                    onclick="changePage(-1)"
+                  >
+                    ← Anterior
+                  </button>
+                  <button
+                    class="page-btn"
+                    id="pag-next"
+                    onclick="changePage(1)"
+                  >
+                    Siguiente →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="modal-overlay"
+      id="modal-overlay"
+      onclick="closeModalOutside(event)"
+    >
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <div class="modal-caso" id="m-caso"></div>
+            <div class="modal-title" id="m-titulo"></div>
+            <div class="modal-client" id="m-cliente"></div>
+          </div>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="modal-section">
+            <div class="modal-section-title">Información del ticket</div>
+            <div class="detail-grid three">
+              <div class="detail-field">
+                <div class="detail-label">Estado</div>
+                <div class="detail-value" id="m-estado"></div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Prioridad</div>
+                <div class="detail-value" id="m-prioridad"></div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Tipo</div>
+                <div class="detail-value" id="m-tipo"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <div class="modal-section-title">Descripción</div>
+            <div class="detail-desc" id="m-descripcion"></div>
+          </div>
+
+          <div class="modal-section">
+            <div class="modal-section-title">Contacto</div>
+            <div class="detail-grid">
+              <div class="detail-field">
+                <div class="detail-label">Nombre</div>
+                <div class="detail-value" id="m-nombre"></div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Cargo</div>
+                <div class="detail-value" id="m-cargo"></div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Email / Usuario</div>
+                <div class="detail-value" id="m-contacto"></div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Teléfono</div>
+                <div class="detail-value" id="m-telefono"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <div class="modal-section-title">Fechas</div>
+            <div class="detail-grid">
+              <div class="detail-field">
+                <div class="detail-label">Creado</div>
+                <div class="detail-value" id="m-created"></div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">Actualizado</div>
+                <div class="detail-value" id="m-updated"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-section" id="m-previo-wrap">
+            <div class="modal-section-title">Caso previo</div>
+            <div class="detail-value" id="m-previo"></div>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <span class="actions-label">Cambiar estado:</span>
+          <button class="status-btn" onclick="updateStatus('Abierto')">
+            Abierto
+          </button>
+          <button class="status-btn" onclick="updateStatus('En Proceso')">
+            En Proceso
+          </button>
+          <button class="status-btn" onclick="updateStatus('Cerrado')">
+            Cerrado
+          </button>
+          <div class="actions-spacer"></div>
+          <button class="status-btn btn-danger" onclick="deleteTicket()">
+            🗑 Eliminar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-wrap" id="toast-wrap"></div>
+
+    <script src="../js/crm.js"></script>
+  </body>
+</html>
