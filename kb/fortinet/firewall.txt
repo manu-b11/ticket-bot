@@ -1,0 +1,15 @@
+ERROR: "Policy not matching traffic"
+Causa: Orden de políticas incorrecto, interfaz de origen/destino mal configurada, o servicio no incluido.
+Solución: Revisar con `diagnose firewall iprope lookup`. Verificar orden de políticas en GUI o `show firewall policy`. Asegurar que srcintf/dstintf coincidan con el tráfico real.
+
+ERROR: "SSL VPN users cannot connect"
+Causa: Certificado expirado, portal mal configurado, o split tunneling bloqueando.
+Solución: Verificar certificado en System > Certificates. Revisar SSL-VPN Settings > Authentication/Portal. Ejecutar `diagnose debug application sslvpn -1` para logs en tiempo real.
+
+ERROR: "IPS blocking legitimate traffic"
+Causa: Firma IPS con falso positivo o umbral muy agresivo.
+Solución: Identificar la firma con `logs > IPS`. Cambiar acción de `block` a `monitor` en IPS profile. Crear excepción para la IP/servicio afectado.
+
+ERROR: "High CPU en FortiGate"
+Causa: Tráfico masivo, ataque DDoS, o proceso del sistema con uso anormal.
+Solución: Ejecutar `get system performance status`. Identificar proceso con `diagnose sys top`. Revisar sesiones con `diagnose sys session stat`.

@@ -1,0 +1,15 @@
+ERROR: "Spanning tree topology change"
+Causa: Un puerto cambió de estado y STP está recalculando la topología.
+Solución: Verificar puertos con portfast deshabilitado en access ports. Habilitar `spanning-tree portfast` en puertos de usuario final. Revisar si hay loops físicos.
+
+ERROR: "CDP neighbors not found"
+Causa: CDP deshabilitado en la interfaz o en el vecino.
+Solución: Ejecutar `show cdp neighbors detail`. Verificar con `no cdp run` globalmente o `no cdp enable` en la interfaz. Habilitar con `cdp run` y `cdp enable`.
+
+ERROR: "Interface GigabitEthernet down/down"
+Causa: Cable desconectado, falla en SFP, o el extremo remoto apagado.
+Solución: Verificar cable físico. Limpiar/reemplazar SFP. Ejecutar `show interface gi0/1` para ver errores. Si es err-disabled: `shutdown` / `no shutdown`.
+
+ERROR: "VLAN not allowed on trunk"
+Causa: La VLAN no está en la lista permitida del trunk.
+Solución: Ejecutar `show interfaces trunk` para ver VLANs permitidas. Agregar con `switchport trunk allowed vlan add {id}`.

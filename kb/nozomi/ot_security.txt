@@ -1,0 +1,15 @@
+ERROR: "Asset not appearing in Nozomi dashboard"
+Causa: El activo no está generando tráfico visible o está en un segmento no monitoreado.
+Solución: Verificar que el sensor tenga visibilidad del segmento OT. Revisar configuración de SPAN/TAP. Forzar tráfico del dispositivo y esperar 5-10 minutos para que aparezca.
+
+ERROR: "Alert: Unauthorized protocol detected"
+Causa: Un protocolo industrial (Modbus, DNP3, EtherNet/IP) fue detectado fuera de la baseline.
+Solución: Verificar si el dispositivo es legítimo. Si es nuevo, agregarlo a la whitelist en Assets > Policy. Si es desconocido, aislar y escalar a equipo de seguridad OT.
+
+ERROR: "Sensor offline / no data"
+Causa: El sensor perdió conectividad con el Central Management Console (CMC).
+Solución: Verificar conectividad de red al sensor. Revisar estado con `show system status` en CLI del sensor. Reiniciar servicio con `service nozomi restart` si aplica.
+
+ERROR: "Baseline deviation alert"
+Causa: Un dispositivo OT cambió su comportamiento de comunicación respecto a la línea base aprendida.
+Solución: Revisar el activo en Assets > Nodes. Comparar tráfico actual vs. baseline. Si el cambio es intencional (mantenimiento), pausar alertas temporalmente. Si no, escalar.

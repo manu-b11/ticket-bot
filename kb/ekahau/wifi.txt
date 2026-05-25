@@ -1,0 +1,15 @@
+ERROR: "Ekahau Site Survey - No se detectan APs"
+Causa: Adaptador Wi-Fi no compatible o en modo monitor deshabilitado.
+Solución: Usar Ekahau Sidekick para escaneo confiable. Verificar que el adaptador soporte modo promiscuo. En Windows, deshabilitar el driver nativo y usar el de Ekahau.
+
+ERROR: "Heat map showing dead zones inesperados"
+Causa: Obstáculos físicos no registrados en el plano o APs con potencia incorrecta.
+Solución: Actualizar el mapa de planta con materiales correctos (concreto, metal, vidrio). Recalibrar con mediciones reales en esos puntos. Ajustar potencia de TX en APs afectados.
+
+ERROR: "Survey data no coincide con rendimiento real"
+Causa: Interferencia de canal no capturada durante el survey o cambios de entorno post-survey.
+Solución: Realizar un survey de validación post-instalación. Activar análisis de espectro en Ekahau. Verificar solapamiento de canales con `show ap summary` en el controlador.
+
+ERROR: "Importación de plano falla en Ekahau AI Pro"
+Causa: Formato de archivo no compatible (DWG muy reciente) o resolución de imagen muy baja.
+Solución: Exportar el plano como PDF o PNG a 150+ DPI. En AutoCAD usar `saveas` a formato DWG 2018. Verificar que el tamaño no supere 50MB.

@@ -1,0 +1,11 @@
+ERROR: "Route not appearing in routing table"
+Causa: Protocolo de enrutamiento no configurado, red pasiva, o métrica incorrecta.
+Solución: Verificar con `show ip route`. Revisar `show ip ospf neighbor` o `show ip bgp summary`. Asegurar que la red esté anunciada con `network` o `redistribute`.
+
+ERROR: "BGP neighbor stuck in Active state"
+Causa: No hay conectividad TCP al peer, ACL bloqueando puerto 179, o IP incorrecta.
+Solución: Ping al peer. Revisar ACLs con `show ip access-lists`. Verificar `neighbor x.x.x.x remote-as` correcto. Revisar MTU si hay GRE/IPSEC.
+
+ERROR: "OSPF neighbor not forming"
+Causa: Área diferente, hello/dead timers distintos, autenticación incorrecta, MTU mismatch.
+Solución: Verificar `show ip ospf neighbor`. Comparar timers con `show ip ospf interface`. Revisar `ip mtu` en ambos lados.
