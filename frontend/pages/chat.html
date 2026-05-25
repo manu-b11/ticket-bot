@@ -3,45 +3,74 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Netmask</title>
+    <title>SupportSync · Netmask</title>
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="../css/chat.css" />
   </head>
   <body>
     <div class="app">
+      <!-- ═══════ SIDEBAR ═══════ -->
       <aside class="sidebar">
         <div class="sidebar-header">
           <div class="logo">
-            <div class="logo-icon">🛡️</div>
-            <div>
-              <div class="logo-text">Netmask</div>
-              <div class="logo-sub">Mesa de ayuda</div>
-            </div>
+            <div class="logo-text">SupportSync</div>
           </div>
           <div class="search-box">
-            <span>🔍</span>
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
             <input type="text" placeholder="Buscar conversación…" />
           </div>
         </div>
-        <div class="sidebar-section">Activos</div>
+
+        <div class="sidebar-section-label">Conversaciones</div>
+
         <div class="conv-list">
           <div class="conv-item active">
-            <div class="conv-avatar">🤖</div>
+            <div class="conv-avatar">
+              <img src="../assets/netmask.jpg" alt="Netmask" />
+            </div>
             <div class="conv-info">
               <div class="conv-name">Agente Netmask</div>
               <div class="conv-prev" id="sidebar-last">Sistema de soporte</div>
             </div>
             <div class="conv-meta">
               <div class="conv-time" id="sidebar-time">ahora</div>
+              <div class="conv-unread" id="sidebar-badge">1</div>
             </div>
           </div>
         </div>
+
         <div class="sidebar-footer">
           <div class="user-card">
-            <div class="user-avatar">👤</div>
+            <div class="user-avatar">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </div>
             <div class="user-info">
               <div class="user-name" id="sidebar-user">Usuario</div>
               <div class="user-role">Cliente</div>
@@ -50,32 +79,57 @@
           </div>
         </div>
       </aside>
+
+      <!-- ═══════ CHAT ═══════ -->
       <div class="chat-area">
         <header class="chat-header">
           <div class="bot-avatar">
-            🤖
-            <div class="online-ring"></div>
+            <img src="../assets/netmask.jpg" alt="Netmask" />
+            <div class="online-dot"></div>
           </div>
           <div class="chat-header-info">
             <div class="chat-header-name">Agente Netmask</div>
-            <div class="chat-header-status">En línea</div>
+            <div class="chat-header-status">
+              <span class="status-pulse"></span>
+              En línea
+            </div>
+          </div>
+          <div class="chat-header-actions">
+            <button class="hdr-btn" title="Información">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </button>
           </div>
         </header>
+
         <div class="messages-wrap" id="messages">
           <div class="date-divider"><span>HOY</span></div>
         </div>
-        <div
-          class="typing-indicator"
-          id="typing"
-          style="display: none; padding: 0 24px 8px"
-        >
-          <div class="msg-avatar">🤖</div>
+
+        <!-- Typing indicator -->
+        <div class="typing-indicator" id="typing" style="display: none">
+          <div class="typing-avatar">
+            <img src="../assets/netmask.jpg" alt="Netmask" />
+          </div>
           <div class="typing-bubble">
             <div class="typing-dot"></div>
             <div class="typing-dot"></div>
             <div class="typing-dot"></div>
           </div>
         </div>
+
         <div class="input-area">
           <div class="input-wrapper">
             <textarea
@@ -83,11 +137,26 @@
               rows="1"
               placeholder="Escribe un mensaje…"
             ></textarea>
-            <button class="send-btn" onclick="sendMessage()">➤</button>
+            <button class="send-btn" onclick="sendMessage()" title="Enviar">
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.3"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
           </div>
         </div>
       </div>
     </div>
+
     <script src="../js/chat.js"></script>
   </body>
 </html>

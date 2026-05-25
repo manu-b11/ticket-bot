@@ -268,6 +268,24 @@ def process_message(message: str, user_id: str, db: Session) -> str:
             sessions[user_id]["usuario_pidio_agente"] = True
         t = sessions[user_id].get("ticket", {})
         return "✅ Te transfiero a NV1 con el contexto.\n\n" + build_ticket_summary(t)
+    
+    # ── Consultar ticket ───────────────────────────────────────────────────────
+    if msg.lower() in {"consultar ticket", "consultar", "ver ticket", "estado ticket"}:
+        # Buscar tickets del usuario
+        tickets_usuario = [
+            t for t in tickets.values() if t.get("user_id") == user_id
+        ]
+        if not tickets_usuario:
+            return "No encontré tickets asociados a tu usuario. ¿Deseas crear uno nuevo?"
+        
+        resumen = "📋 Tus tickets activos:\n\n"
+        for t in tickets_usuario:
+            resumen += (
+                f"🧾 {t['numero_caso']} — {t['titulo']}\n"
+                f"   Estado: {t['estado']} | Prioridad: {t['prioridad']}\n\n"
+            )
+        resumen += "Escribe el número de caso para ver el detalle (ej: NET-2026-001)"
+        return resumen
  
     # ── Inicializar sesión ─────────────────────────────────────────────────────
     if user_id not in sessions:
@@ -277,11 +295,14 @@ def process_message(message: str, user_id: str, db: Session) -> str:
     step   = state["step"]
     ticket = state["ticket"]
  
-    # STEP 0 ── saludo
+   # STEP 0 ── problema inicial
     if step == 0:
         state["step"] = 1
-        return "Hola 👋 Describe el problema (mínimo 10 caracteres)."
- 
+        return (
+            "👋 Perfecto, comenzaré a ayudarte con la creación del ticket.\n\n"
+            "Por favor, describe el problema que estás presentando "
+            "(mínimo 10 caracteres)."
+        )
     # STEP 1 ── descripción
     if step == 1:
         if len(msg) < 10:
@@ -375,7 +396,8 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         return (
             "Entendido, la sugerencia no fue suficiente.\n\n"
             "¿Quieres que intente con pasos adicionales de diagnóstico "
-            "antes de crear el ticket? (sí/no)"
+            "antes de crear el ticket? (sí/no)\n\n"
+            "💡 También puedes escribir 'hablar con agente' si prefieres atención humana."
         )
  
     # STEP 3.5 ── diagnóstico adicional o ir directo al ticket
@@ -431,9 +453,10 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         state["step"] = 4
         return (
             "Entendido, escalaremos el caso a soporte técnico.\n\n"
-            "¿Cuál es el tipo de incidencia? (Software / Hardware / Red / Acceso / Otro)"
+            "¿Cuál es el tipo de incidencia? (Software / Hardware / Red / Acceso / Otro)\n\n"
+            "💡 Recuerda que también puedes escribir 'hablar con agente' en cualquier momento."
         )
- 
+        
     # STEP 4 ── tipo
     if step == 4:
         t = msg.lower()
@@ -496,7 +519,11 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         state["step"]         = 12
         pr = ia_sugerir_prioridad(ticket["descripcion"], ticket["tipo"])
         ticket["prioridad_sugerida"] = pr
-        return f"✅ Prioridad sugerida por IA: {pr}. ¿Confirmas? (sí/no)"
+        return (
+            f"✅ Prioridad sugerida por IA: {pr}. ¿Confirmas? (sí/no)\n\n"
+            "💡 Recuerda que si prefieres atención humana directa, "
+            "puedes escribir 'hablar con agente' en cualquier momento."
+        )
  
     # STEP 11 ── caso previo valor
     if step == 11:
