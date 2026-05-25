@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Body, Depends
+from fastapi import FastAPI, Body, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -598,6 +598,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
             "nombre"         : ticket.get("nombre", ""),
             "estado"         : ticket.get("estado", "Abierto"),
             "cliente"        : ticket.get("cliente", ""),
+            "user_id"        : user_id,
             "id"             : next_id(),
             "prioridad"      : ticket.get("prioridad", "Media"),
             "contacto"       : ticket.get("contacto", ticket.get("nombre", "")),
@@ -606,6 +607,8 @@ def process_message(message: str, user_id: str, db: Session) -> str:
             "numero_contacto": ticket.get("numero_contacto"),
             "caso_previo"    : ticket.get("caso_previo"),
             "escalamiento"   : ticket.get("escalamiento"),
+            "created_at"     : datetime.utcnow().isoformat(),  # ← agregar esto
+            "updated_at"     : datetime.utcnow().isoformat(),  # ← y esto
         }
         tickets[numero_caso] = final_ticket
         notify(user_id, f"✅ Caso {numero_caso} creado.")
@@ -640,6 +643,11 @@ def process_message(message: str, user_id: str, db: Session) -> str:
 @app.post("/chat")
 def chat(data: ChatMessage, db: Session = Depends(get_db)):
     return {"response": process_message(data.message, data.user_id, db)}
+
+@app.get("/tickets")
+def get_tickets(limit: int = 100):
+    lista = list(tickets.values())
+    return lista[:limit]  
  
 @app.get("/notifications/{user_id}")
 def get_notifications(user_id: str):
@@ -680,6 +688,50 @@ def listar_soluciones(marca: str = None, db: Session = Depends(get_db)):
          "veces_usado": s.veces_usado, "creado_en": str(s.creado_en)}
         for s in q.order_by(SolucionKB.veces_usado.desc()).limit(50).all()
     ]}
+
+@app.put("/tickets/{ticket_id}")
+def update_ticket(ticket_id: int, payload: dict = Body(...)):
+    ticket = next((t for t in tickets.values() if t.get("id") == ticket_id), None)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
+    estado  = (payload.get("estado") or "").strip()
+    user_id = (payload.get("user_id") or "").strip()
+
+    if not estado or not user_id:
+        raise HTTPException(status_code=422, detail="Faltan campos")
+
+    ticket["estado"]     = estado
+    ticket["updated_at"] = datetime.utcnow().isoformat()
+
+    # Notificar al agente CRM
+    notify(user_id, f"🔔 Caso {ticket['numero_caso']} → {estado}")
+
+    # Notificar al cliente que creó el ticket
+    cliente_user_id = ticket.get("user_id")
+    if cliente_user_id:
+        mensajes = {
+            "Abierto"    : f"📋 Tu caso {ticket['numero_caso']} ha sido reabierto. Nuestro equipo lo revisará pronto.",
+            "En Proceso" : f"⚙️ Buenas noticias, tu caso {ticket['numero_caso']} está siendo atendido por un agente. Pronto tendrás una solución.",
+            "Cerrado"    : f"✅ Tu caso {ticket['numero_caso']} ha sido resuelto y cerrado. Si el problema persiste escríbenos de nuevo.",
+        }
+        texto = mensajes.get(estado, f"🔔 Tu caso {ticket['numero_caso']} cambió a: {estado}")
+        notify(cliente_user_id, texto)
+
+    return ticket
+
+
+
+@app.delete("/tickets/{ticket_id}")
+def delete_ticket(ticket_id: int):
+    numero_caso = next(
+        (k for k, t in tickets.items() if t.get("id") == ticket_id), None
+    )
+    if not numero_caso:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    
+    del tickets[numero_caso]
+    return {"ok": True, "deleted_id": ticket_id}
  
 @app.get("/")
 def root():

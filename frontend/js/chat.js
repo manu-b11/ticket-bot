@@ -106,6 +106,39 @@ document.getElementById("msg-input").addEventListener("keydown", (e) => {
   }
 });
 
+// ── Notificaciones por polling
+function appendNotification(text) {
+  const wrap = document.getElementById("messages");
+
+  const row = document.createElement("div");
+  row.className = "msg-row bot";
+
+  const avatar = document.createElement("div");
+  avatar.className = "msg-avatar";
+  avatar.textContent = "🤖";
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble bot";
+  bubble.innerHTML = escapeHtml(text).replace(/\n/g, "<br>");
+
+  row.appendChild(avatar);
+  row.appendChild(bubble);
+  wrap.appendChild(row);
+  scrollToBottom();
+}
+
+async function pollNotifications() {
+  try {
+    const res = await fetch(`${API_BASE}/notifications/${USER_ID}`);
+    const data = await res.json();
+    (data.notifications || []).forEach((n) => appendNotification(n.text));
+  } catch {
+    // silencioso, no interrumpir el chat
+  }
+}
+
+setInterval(pollNotifications, 5000); // cada 5 segundos
+
 window.onload = () => {
   appendMessage(
     "Hola, soy el asistente virtual de Netmask.\n\nEstoy aquí para ayudarte con la creación y consulta de tickets de soporte.\n\nIndica cómo deseas continuar.",
