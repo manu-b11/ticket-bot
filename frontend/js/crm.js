@@ -86,7 +86,6 @@ async function loadTickets() {
   try {
     const r = await fetch(`${API}/tickets?limit=500`);
     allTickets = await r.json();
-
     document.getElementById("topbar-sub").textContent =
       `${allTickets.length} registros · actualizado ahora`;
     filterTickets();
@@ -202,6 +201,11 @@ function openTicket(id) {
   document.getElementById("m-created").textContent = formatDate(t.created_at);
   document.getElementById("m-updated").textContent = formatDate(t.updated_at);
 
+  document.getElementById("m-ingeniero-input").value =
+    t.ingeniero_asignado || "";
+  document.getElementById("m-comentario-input").value =
+    t.ultimo_comentario || "";
+
   const previo = document.getElementById("m-previo-wrap");
   if (t.caso_previo) {
     previo.style.display = "block";
@@ -226,31 +230,84 @@ function closeModalOutside(e) {
   if (e.target === document.getElementById("modal-overlay")) closeModal();
 }
 
+/* =========================
+   🔥 ARREGLADO AQUÍ
+   ========================= */
 async function updateStatus(newEstado) {
   if (!currentTicket) return;
+
+  try {
+    const r = await fetch(`${API}/ticket/${currentTicket.numero_caso}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        estado: newEstado,
+        user_id: AGENT_ID,
+        ingeniero_asignado:
+          document.getElementById("m-ingeniero-input").value || null,
+        ultimo_comentario:
+          document.getElementById("m-comentario-input").value || null,
+      }),
+    });
+
+    if (!r.ok) throw new Error();
+
+    const updated = await r.json();
+
+    const idx = allTickets.findIndex(
+      (t) => t.numero_caso === updated.numero_caso,
+    );
+
+    if (idx !== -1) {
+      allTickets[idx].estado = newEstado;
+    }
+
+    currentTicket.estado = newEstado;
+
+    document.getElementById("m-estado").innerHTML = estadoBadge(newEstado);
+
+    document.querySelectorAll(".status-btn:not(.btn-danger)").forEach((b) => {
+      b.classList.toggle("active", b.textContent.trim() === newEstado);
+    });
+
+    filterTickets();
+    await loadStats();
+
+    toast(`Estado actualizado a "${newEstado}"`, "ok");
+  } catch {
+    toast("Error al actualizar el ticket", "danger");
+  }
+}
+
+async function saveGestion() {
+  if (!currentTicket) return;
+  const ingeniero = document.getElementById("m-ingeniero-input").value.trim();
+  const comentario = document.getElementById("m-comentario-input").value.trim();
+
   try {
     const r = await fetch(`${API}/tickets/${currentTicket.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ estado: newEstado, user_id: AGENT_ID }),
+      body: JSON.stringify({
+        estado: currentTicket.estado,
+        user_id: AGENT_ID,
+        ingeniero_asignado: ingeniero || null,
+        ultimo_comentario: comentario || null,
+      }),
     });
+
     if (!r.ok) throw new Error();
+
     const updated = await r.json();
     currentTicket = updated;
 
     const idx = allTickets.findIndex((t) => t.id === updated.id);
     if (idx !== -1) allTickets[idx] = updated;
 
-    document.getElementById("m-estado").innerHTML = estadoBadge(updated.estado);
-    document.querySelectorAll(".status-btn:not(.btn-danger)").forEach((b) => {
-      b.classList.toggle("active", b.textContent.trim() === updated.estado);
-    });
-
     filterTickets();
-    await loadStats();
-    toast(`Estado actualizado a "${newEstado}"`, "ok");
+    toast("Cambios guardados correctamente", "ok");
   } catch {
-    toast("Error al actualizar el ticket", "danger");
+    toast("Error al guardar los cambios", "danger");
   }
 }
 
@@ -262,11 +319,14 @@ async function deleteTicket() {
     )
   )
     return;
+
   try {
     const r = await fetch(`${API}/tickets/${currentTicket.id}`, {
       method: "DELETE",
     });
+
     if (!r.ok) throw new Error();
+
     allTickets = allTickets.filter((t) => t.id !== currentTicket.id);
     closeModal();
     filterTickets();
@@ -280,5 +340,22 @@ async function deleteTicket() {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeModal();
 });
+
+async function fetchNotifications() {
+  try {
+    const r = await fetch(`${API}/notifications/${AGENT_ID}`);
+    const data = await r.json();
+
+    (data.notifications || []).forEach((n) => {
+      const msg = n?.text ?? n;
+
+      toast(typeof msg === "string" ? msg : JSON.stringify(msg, null, 2), "ok");
+    });
+  } catch (e) {
+    console.log("Error cargando notificaciones");
+  }
+}
+
+setInterval(fetchNotifications, 3000);
 
 loadTickets();

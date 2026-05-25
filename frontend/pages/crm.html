@@ -9,6 +9,55 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="../css/crm.css" />
+    <style>
+      /* ── MODAL INPUTS ── */
+      .modal-input,
+      .modal-textarea {
+        width: 100%;
+        background: var(--bg-base);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-family: var(--font-ui);
+        font-size: 13px;
+        color: var(--txt-primary);
+        outline: none;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+        resize: vertical;
+      }
+      .modal-input::placeholder,
+      .modal-textarea::placeholder {
+        color: var(--txt-muted);
+      }
+      .modal-input:focus,
+      .modal-textarea:focus {
+        border-color: rgba(37, 99, 235, 0.4);
+        box-shadow: 0 0 0 3px var(--accent-glow);
+        background: var(--bg-panel);
+      }
+      .btn-save-gestion {
+        margin-top: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 1px solid var(--accent);
+        background: var(--accent-light);
+        color: var(--accent);
+        font-family: var(--font-ui);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .btn-save-gestion:hover {
+        background: var(--accent);
+        color: #fff;
+      }
+    </style>
   </head>
   <body>
     <div class="layout">
@@ -183,6 +232,7 @@
       </div>
     </div>
 
+    <!-- ── MODAL ── -->
     <div
       class="modal-overlay"
       id="modal-overlay"
@@ -199,6 +249,7 @@
         </div>
 
         <div class="modal-body">
+          <!-- Información del ticket -->
           <div class="modal-section">
             <div class="modal-section-title">Información del ticket</div>
             <div class="detail-grid three">
@@ -217,11 +268,13 @@
             </div>
           </div>
 
+          <!-- Descripción -->
           <div class="modal-section">
             <div class="modal-section-title">Descripción</div>
             <div class="detail-desc" id="m-descripcion"></div>
           </div>
 
+          <!-- Contacto -->
           <div class="modal-section">
             <div class="modal-section-title">Contacto</div>
             <div class="detail-grid">
@@ -244,6 +297,7 @@
             </div>
           </div>
 
+          <!-- Fechas -->
           <div class="modal-section">
             <div class="modal-section-title">Fechas</div>
             <div class="detail-grid">
@@ -258,9 +312,40 @@
             </div>
           </div>
 
+          <!-- Caso previo (condicional) -->
           <div class="modal-section" id="m-previo-wrap">
             <div class="modal-section-title">Caso previo</div>
             <div class="detail-value" id="m-previo"></div>
+          </div>
+
+          <!-- Gestión interna -->
+          <div class="modal-section">
+            <div class="modal-section-title">Gestión interna</div>
+            <div class="detail-grid" style="gap: 14px">
+              <div class="detail-field" style="grid-column: 1 / -1">
+                <div class="detail-label">Ingeniero asignado</div>
+                <input
+                  type="text"
+                  id="m-ingeniero-input"
+                  class="modal-input"
+                  placeholder="Nombre del ingeniero…"
+                  maxlength="80"
+                />
+              </div>
+              <div class="detail-field" style="grid-column: 1 / -1">
+                <div class="detail-label">Último comentario</div>
+                <textarea
+                  id="m-comentario-input"
+                  class="modal-textarea"
+                  placeholder="Agregar comentario o nota interna…"
+                  maxlength="500"
+                  rows="3"
+                ></textarea>
+              </div>
+            </div>
+            <button class="btn-save-gestion" onclick="saveGestion()">
+              <span>💾</span> Guardar cambios
+            </button>
           </div>
         </div>
 

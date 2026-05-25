@@ -1043,3 +1043,56 @@ tbody td {
   scrollbar-width: thin;
   scrollbar-color: #dde3ec transparent;
 }
+
+/* ── MODAL INPUTS ── */
+
+.modal-input,
+.modal-textarea {
+  width: 100%;
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--txt-primary);
+  outline: none;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+  resize: vertical;
+}
+
+.modal-input::placeholder,
+.modal-textarea::placeholder {
+  color: var(--txt-muted);
+}
+
+.modal-input:focus,
+.modal-textarea:focus {
+  border-color: rgba(37, 99, 235, 0.4);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: var(--bg-panel);
+}
+
+.btn-save-gestion {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-save-gestion:hover {
+  background: var(--accent);
+  color: #fff;
+}
