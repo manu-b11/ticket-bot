@@ -516,6 +516,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         if low in {"sí", "si"}:
             ticket["prioridad"] = ticket.get("prioridad_sugerida", "Media")
             state["step"] = 14
+            step = 14
         else:
             state["step"] = 13
             return "Indica prioridad (Alta / Media / Baja). La IA la validará:"
@@ -529,6 +530,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         ticket["prioridad_validacion"] = verdict
         ticket["prioridad"]            = verdict.get("prioridad_final", pr)
         state["step"] = 14
+        step = 14 
  
     # STEP 14 ── score + resumen + confirmación
     if step == 14:
