@@ -8,7 +8,7 @@ import re
 import requests
 from datetime import datetime
 
-from database import engine, get_db
+from database import engine, get_db, SessionLocal
 import models
 from ollama_client import analizar_ticket
 from rag_engine import (
@@ -34,12 +34,12 @@ try:
 except Exception as e:
     print("⚠️ No se pudo cargar la KB (RAG):", e)
 
-
+# ── Modelos API ────────────────────────────────────────────────────────────────
 class ChatMessage(BaseModel):
     user_id: str
     message: str
 
-
+# ── Estado en memoria ──────────────────────────────────────────────────────────
 sessions      = {}
 tickets       = {}
 notifications = {}
@@ -58,6 +58,34 @@ OLLAMA_GENERATE_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL        = "qwen3.5:0.8b"
 
 
+# ── Inicializar contadores desde DB (evita colisiones al reiniciar) ────────────
+def _init_counters():
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        ultimo_id = db.query(func.max(models.Ticket.id)).scalar() or 0
+        COUNTERS["id"] = ultimo_id
+
+        ultimo_caso = (
+            db.query(models.Ticket.numero_caso)
+            .order_by(models.Ticket.id.desc())
+            .first()
+        )
+        if ultimo_caso:
+            try:
+                COUNTERS["seq"] = int(ultimo_caso[0].split("-")[-1])
+            except Exception:
+                pass
+        print(f"✅ Contadores: id={COUNTERS['id']}, seq={COUNTERS['seq']}")
+    except Exception as e:
+        print(f"⚠️ No se pudo inicializar contadores: {e}")
+    finally:
+        db.close()
+
+_init_counters()
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
 def notify(user_id: str, text: str):
     notifications.setdefault(user_id, []).append(
         {"ts": datetime.utcnow().isoformat(), "text": text}
@@ -89,6 +117,16 @@ def _limpiar_json(raw: str) -> str:
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     return match.group(0) if match else "{}"
 
+def _fmt_dt(val) -> str:
+    if val is None:
+        return "—"
+    if isinstance(val, datetime):
+        return val.strftime("%d/%m/%Y %H:%M")
+    try:
+        return datetime.fromisoformat(str(val)).strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return str(val)
+
 def build_ticket_summary(ticket: dict) -> str:
     t = ticket or {}
     return (
@@ -106,16 +144,6 @@ def build_ticket_summary(ticket: dict) -> str:
         f"⚡ Prioridad       : {t.get('prioridad', '')}\n"
         f"📍 Estado          : {t.get('estado', 'Abierto')}"
     )
-
-def _fmt_dt(val) -> str:
-    if val is None:
-        return "—"
-    if isinstance(val, datetime):
-        return val.strftime("%d/%m/%Y %H:%M")
-    try:
-        return datetime.fromisoformat(str(val)).strftime("%d/%m/%Y %H:%M")
-    except Exception:
-        return str(val)
 
 def _ticket_detalle_db(t) -> str:
     return (
@@ -160,6 +188,7 @@ def _ticket_detalle_mem(t: dict) -> str:
     )
 
 
+# ── IA: generar sugerencia desde KB ───────────────────────────────────────────
 def ia_generar_sugerencia(descripcion: str, marca: str, kb_context: str) -> str:
     prompt = (
         f"Eres un técnico experto en soporte IT especializado en equipos {marca.capitalize()}.\n\n"
@@ -171,19 +200,12 @@ def ia_generar_sugerencia(descripcion: str, marca: str, kb_context: str) -> str:
         "No inventes información que no esté en la documentación. "
         "Responde SOLO con la sugerencia, sin saludos ni explicaciones adicionales."
     )
-
     try:
-        r = requests.post(
-            OLLAMA_GENERATE_URL,
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": 0.3, "num_predict": 300, "num_ctx": 2048},
-                "keep_alive": "0",
-            },
-            timeout=90,
-        )
+        r = requests.post(OLLAMA_GENERATE_URL, json={
+            "model": OLLAMA_MODEL, "prompt": prompt, "stream": False,
+            "options": {"temperature": 0.3, "num_predict": 300, "num_ctx": 2048},
+            "keep_alive": "0",
+        }, timeout=90)
         r.raise_for_status()
         raw = r.json().get("response", "").strip()
         raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
@@ -192,6 +214,7 @@ def ia_generar_sugerencia(descripcion: str, marca: str, kb_context: str) -> str:
         return kb_context
 
 
+# ── IA: validar/sugerir prioridad ─────────────────────────────────────────────
 def ia_validar_prioridad(descripcion: str, tipo: str, prioridad_usuario: str) -> dict:
     prompt = (
         "Eres un analista de mesa de ayuda. Valida la PRIORIDAD del ticket.\n\n"
@@ -223,6 +246,7 @@ def ia_sugerir_prioridad(descripcion: str, tipo: str) -> str:
         return "Media"
 
 
+# ── Ecuación de escalamiento ───────────────────────────────────────────────────
 def calcular_score_escalamiento(ticket: dict, rag_sin_fuente=False, usuario_pidio_agente=False) -> dict:
     desc      = (ticket.get("descripcion") or "").lower()
     prioridad = (ticket.get("prioridad") or ticket.get("prioridad_sugerida") or "Media").capitalize()
@@ -239,32 +263,22 @@ def calcular_score_escalamiento(ticket: dict, rag_sin_fuente=False, usuario_pidi
     decision = "ESCALAR_YA" if score >= 70 else ("RECOMENDAR_ESCALAR" if score >= 50 else "NO_ESCALAR")
 
     razones = []
-    if prioridad == "Alta":      razones.append("prioridad alta")
-    if I >= 80:                  razones.append("impacto alto o caída")
-    if S == 100:                 razones.append("posible incidente de seguridad")
-    if A >= 70:                  razones.append("descripción ambigua")
-    if R > 0:                    razones.append("hay caso previo")
-    if rag_sin_fuente:           razones.append("sin respaldo documental")
-    if usuario_pidio_agente:     razones.append("usuario pidió agente")
+    if prioridad == "Alta":   razones.append("prioridad alta")
+    if I >= 80:               razones.append("impacto alto o caída")
+    if S == 100:              razones.append("posible incidente de seguridad")
+    if A >= 70:               razones.append("descripción ambigua")
+    if R > 0:                 razones.append("hay caso previo")
+    if rag_sin_fuente:        razones.append("sin respaldo documental")
+    if usuario_pidio_agente:  razones.append("usuario pidió agente")
 
     return {"score": score, "decision": decision, "razones": razones}
 
 
-
-def notify_ticket_update(user_id: str, ticket: dict):
-    notify(
-        user_id,
-        f"📦 ACTUALIZACIÓN DEL TICKET\n"
-        f"🧾 Caso: {ticket.get('numero_caso')}\n"
-        f"📍 Estado: {ticket.get('estado')}\n"
-        f"🧑‍💻 Ingeniero: {ticket.get('ingeniero_asignado') or 'Sin asignar'}\n"
-        f"💬 Último comentario: {ticket.get('ultimo_comentario') or 'Sin comentarios'}\n"
-        f"🕐 Actualización: {ticket.get('updated_at')}"
-    )
-
+# ── Bot conversacional ─────────────────────────────────────────────────────────
 def process_message(message: str, user_id: str, db: Session) -> str:
     msg = (message or "").strip()
 
+    # FAQ / RAG
     if msg.lower().startswith("faq:") or "?" in msg:
         pregunta     = msg[4:].strip() if msg.lower().startswith("faq:") else msg
         if not pregunta:
@@ -272,14 +286,11 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         marca_sesion = sessions.get(user_id, {}).get("ticket", {}).get("marca")
         kb_raw       = buscar_respuesta(pregunta, marca=marca_sesion)
         sin_fuente   = "No encontré" in kb_raw
-
         if user_id not in sessions:
             sessions[user_id] = {"step": 0, "ticket": {}, "rag_sin_fuente": False, "usuario_pidio_agente": False}
         sessions[user_id]["rag_sin_fuente"] = sin_fuente
-
         if sin_fuente:
             return kb_raw + "\n\nEscribe 'hablar con agente' si necesitas soporte humano."
-
         marca_faq  = marca_sesion or "el fabricante"
         desc_faq   = sessions[user_id].get("ticket", {}).get("descripcion", pregunta)
         sugerencia = ia_generar_sugerencia(desc_faq, marca_faq, kb_raw)
@@ -288,6 +299,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
             "Escribe 'hablar con agente' si necesitas soporte humano."
         )
 
+    # Agente humano
     if msg.lower() in {"hablar con agente", "agente", "nv1", "escalar"}:
         if user_id not in sessions:
             sessions[user_id] = {"step": 0, "ticket": {}, "rag_sin_fuente": False, "usuario_pidio_agente": True}
@@ -296,53 +308,50 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         t = sessions[user_id].get("ticket", {})
         return "✅ Te transfiero a NV1 con el contexto.\n\n" + build_ticket_summary(t)
 
+    # Consultar tickets del usuario
     if msg.lower() in {"consultar ticket", "consultar", "ver ticket", "estado ticket"}:
         tickets_db  = db.query(models.Ticket).filter(models.Ticket.contacto == user_id).all()
         tickets_mem = [t for t in tickets.values() if t.get("user_id") == user_id]
-
         if not tickets_db and not tickets_mem:
             return (
                 "No encontré tickets asociados a tu sesión.\n\n"
                 "Si tienes un número de caso escríbelo directamente (ej: NET-2026-001) "
                 "y te doy el detalle completo."
             )
-
         resumen = "📋 Tus tickets:\n\n"
         for t in tickets_db:
             resumen += (
                 f"🧾 {t.numero_caso} — {t.titulo}\n"
-                f"   📍 Estado              : {t.estado}\n"
-                f"   ⚡ Prioridad           : {t.prioridad}\n"
-                f"   🧑‍💻 Ingeniero asignado  : {t.ingeniero_asignado or 'Sin asignar'}\n"
-                f"   💬 Último comentario   : {t.ultimo_comentario or 'Sin comentarios'}\n"
-                f"   🕐 Creado              : {_fmt_dt(t.created_at)}\n"
-                f"   🔄 Última actualiz.    : {_fmt_dt(t.updated_at)}\n\n"
+                f"   📍 Estado             : {t.estado}\n"
+                f"   ⚡ Prioridad          : {t.prioridad}\n"
+                f"   🧑‍💻 Ingeniero asignado : {t.ingeniero_asignado or 'Sin asignar'}\n"
+                f"   💬 Último comentario  : {t.ultimo_comentario or 'Sin comentarios'}\n"
+                f"   🕐 Creado             : {_fmt_dt(t.created_at)}\n"
+                f"   🔄 Última actualiz.   : {_fmt_dt(t.updated_at)}\n\n"
             )
         for t in tickets_mem:
             resumen += (
                 f"🧾 {t['numero_caso']} — {t['titulo']}\n"
-                f"   📍 Estado              : {t.get('estado', 'Abierto')}\n"
-                f"   ⚡ Prioridad           : {t.get('prioridad', '—')}\n"
-                f"   🧑‍💻 Ingeniero asignado  : {t.get('ingeniero_asignado') or 'Sin asignar'}\n"
-                f"   💬 Último comentario   : {t.get('ultimo_comentario') or 'Sin comentarios'}\n"
-                f"   🕐 Creado              : {_fmt_dt(t.get('created_at'))}\n"
-                f"   🔄 Última actualiz.    : {_fmt_dt(t.get('updated_at'))}\n\n"
+                f"   📍 Estado             : {t.get('estado', 'Abierto')}\n"
+                f"   ⚡ Prioridad          : {t.get('prioridad', '—')}\n"
+                f"   🧑‍💻 Ingeniero asignado : {t.get('ingeniero_asignado') or 'Sin asignar'}\n"
+                f"   💬 Último comentario  : {t.get('ultimo_comentario') or 'Sin comentarios'}\n"
+                f"   🕐 Creado             : {_fmt_dt(t.get('created_at'))}\n"
+                f"   🔄 Última actualiz.   : {_fmt_dt(t.get('updated_at'))}\n\n"
             )
         resumen += "Escribe el número de caso para ver el detalle completo (ej: NET-2026-001)"
         return resumen
 
+    # Consulta directa por número de caso
     if re.match(r"^NET-\d{4}-\d{3,}$", msg.upper()):
         numero = msg.upper()
-        t_db  = db.query(models.Ticket).filter(models.Ticket.numero_caso == numero).first()
-        t_mem = tickets.get(numero)
-
+        t_db   = db.query(models.Ticket).filter(models.Ticket.numero_caso == numero).first()
+        t_mem  = tickets.get(numero)
         if not t_db and not t_mem:
             return f"⚠️ No encontré el caso {numero}. Verifica el número e intenta de nuevo."
+        return _ticket_detalle_db(t_db) if t_db else _ticket_detalle_mem(t_mem)
 
-        if t_db:
-            return _ticket_detalle_db(t_db)
-        return _ticket_detalle_mem(t_mem)
-
+    # Inicializar sesión
     if user_id not in sessions:
         sessions[user_id] = {"step": 0, "ticket": {}, "rag_sin_fuente": False, "usuario_pidio_agente": False}
 
@@ -350,17 +359,15 @@ def process_message(message: str, user_id: str, db: Session) -> str:
     step   = state["step"]
     ticket = state["ticket"]
 
-
-    
-
+    # STEP 0
     if step == 0:
         state["step"] = 1
         return (
             "👋 Perfecto, comenzaré a ayudarte con la creación del ticket.\n\n"
-            "Por favor, describe el problema que estás presentando "
-            "(mínimo 10 caracteres)."
+            "Por favor, describe el problema que estás presentando (mínimo 10 caracteres)."
         )
 
+    # STEP 1: descripción
     if step == 1:
         if len(msg) < 10:
             return "⚠️ Describe un poco más el problema (mínimo 10 caracteres)."
@@ -369,6 +376,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         marcas_str = ", ".join(sorted(MARCAS_SOPORTADAS)).title()
         return f"¿Cuál es la marca o fabricante del equipo involucrado?\n({marcas_str}, Otro)"
 
+    # STEP 2: marca → KB → sugerencia IA
     if step == 2:
         marca = msg.strip().lower()
         if marca not in MARCAS_OPCIONES:
@@ -377,7 +385,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
 
         solucion_previa = buscar_solucion_previa(db, marca, ticket["descripcion"])
         if solucion_previa:
-            state["kb_respuesta"] = solucion_previa
+            state["kb_respuesta"]      = solucion_previa
             state["sugerencia_origen"] = "caso_previo"
             state["step"] = 3
             return (
@@ -392,11 +400,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         state["rag_sin_fuente"] = sin_fuente
 
         if not sin_fuente:
-            sugerencia = ia_generar_sugerencia(
-                descripcion=ticket["descripcion"],
-                marca=marca,
-                kb_context=kb_raw,
-            )
+            sugerencia = ia_generar_sugerencia(ticket["descripcion"], marca, kb_raw)
             state["kb_respuesta"]      = sugerencia
             state["kb_raw"]            = kb_raw
             state["sugerencia_origen"] = "kb_oficial"
@@ -411,58 +415,49 @@ def process_message(message: str, user_id: str, db: Session) -> str:
 
         state["step"] = 4
         return (
-            f"ℹ️ No encontré documentación específica para {marca.capitalize()} "
-            "relacionada con tu problema.\n\n"
+            f"ℹ️ No encontré documentación específica para {marca.capitalize()}.\n\n"
             "Continuemos con el ticket para escalar a soporte.\n\n"
             "¿Cuál es el tipo de incidencia? (Software / Hardware / Red / Acceso / Otro)"
         )
 
+    # STEP 3: ¿sugerencia resolvió?
     if step == 3:
         low = msg.lower()
         if low not in {"sí", "si", "no"}:
             return "⚠️ Responde 'sí' o 'no'."
-
         if low in {"sí", "si"}:
             if state.get("sugerencia_origen") == "kb_oficial":
                 try:
-                    guardar_solucion(
-                        db,
-                        marca=ticket.get("marca", "otro"),
-                        error_desc=ticket["descripcion"],
-                        solucion=state.get("kb_respuesta", ""),
-                        numero_caso=None,
-                    )
+                    guardar_solucion(db, marca=ticket.get("marca", "otro"),
+                                     error_desc=ticket["descripcion"],
+                                     solucion=state.get("kb_respuesta", ""),
+                                     numero_caso=None)
                 except Exception:
                     pass
             sessions.pop(user_id, None)
             return (
                 "✅ ¡Excelente! Me alegra que se haya resuelto.\n\n"
-                "La solución quedó registrada para casos similares en el futuro. "
-                "Si tienes otro problema, escríbeme."
+                "La solución quedó registrada para casos similares. Si tienes otro problema, escríbeme."
             )
-
         state["step"] = 3.5
         return (
             "Entendido, la sugerencia no fue suficiente.\n\n"
-            "¿Quieres que intente con pasos adicionales de diagnóstico "
-            "antes de crear el ticket? (sí/no)\n\n"
+            "¿Quieres que intente con pasos adicionales de diagnóstico antes de crear el ticket? (sí/no)\n\n"
             "💡 También puedes escribir 'hablar con agente' si prefieres atención humana."
         )
 
+    # STEP 3.5: diagnóstico adicional
     if step == 3.5:
         low = msg.lower()
         if low not in {"sí", "si", "no"}:
             return "⚠️ Responde 'sí' o 'no'."
-
         if low in {"sí", "si"}:
             marca             = ticket.get("marca", "otro")
-            descripcion       = ticket["descripcion"]
             sugerencia_previa = state.get("kb_respuesta", "")
-
             prompt_diag = (
-                f"El cliente tiene un problema con equipos {marca.capitalize()}: \"{descripcion}\".\n"
+                f"El cliente tiene un problema con equipos {marca.capitalize()}: \"{ticket['descripcion']}\".\n"
                 f"Ya se intentó la siguiente solución sin éxito:\n{sugerencia_previa}\n\n"
-                "Proporciona 3 pasos adicionales de diagnóstico avanzado para este problema. "
+                "Proporciona 3 pasos adicionales de diagnóstico avanzado. "
                 "Sé específico y técnico. Responde SOLO con los pasos numerados."
             )
             try:
@@ -472,36 +467,34 @@ def process_message(message: str, user_id: str, db: Session) -> str:
                     "keep_alive": "0",
                 }, timeout=90)
                 r.raise_for_status()
-                pasos = r.json().get("response", "").strip()
-                pasos = re.sub(r"<think>.*?</think>", "", pasos, flags=re.DOTALL).strip()
+                pasos = re.sub(r"<think>.*?</think>", "", r.json().get("response", ""), flags=re.DOTALL).strip()
             except Exception:
                 pasos = "No pude generar pasos adicionales en este momento."
-
             state["step"] = 3.8
             return (
-                f"🔧 Pasos adicionales de diagnóstico para {marca.capitalize()}:\n\n"
-                f"{pasos}\n\n"
+                f"🔧 Pasos adicionales de diagnóstico para {marca.capitalize()}:\n\n{pasos}\n\n"
                 "─────────────────────────────\n"
                 "¿Alguno de estos pasos resolvió el problema? (sí/no)"
             )
-
         state["step"] = 4
         return "De acuerdo, creamos el ticket.\n\n¿Cuál es el tipo? (Software / Hardware / Red / Acceso / Otro)"
 
+    # STEP 3.8: ¿pasos adicionales resolvieron?
     if step == 3.8:
         low = msg.lower()
         if low not in {"sí", "si", "no"}:
             return "⚠️ Responde 'sí' o 'no'."
         if low in {"sí", "si"}:
             sessions.pop(user_id, None)
-            return "✅ ¡Perfecto! Problema resuelto con diagnóstico avanzado. Escríbeme si necesitas algo más."
+            return "✅ ¡Perfecto! Problema resuelto. Escríbeme si necesitas algo más."
         state["step"] = 4
         return (
-            "Entendido, escalaremos el caso a soporte técnico.\n\n"
+            "Entendido, escalaremos el caso.\n\n"
             "¿Cuál es el tipo de incidencia? (Software / Hardware / Red / Acceso / Otro)\n\n"
-            "💡 Recuerda que también puedes escribir 'hablar con agente' en cualquier momento."
+            "💡 Puedes escribir 'hablar con agente' en cualquier momento."
         )
 
+    # STEP 4: tipo
     if step == 4:
         t = msg.lower()
         if t not in TIPOS_CATEGORIA:
@@ -510,6 +503,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         state["step"]  = 5
         return "Título del caso (5–80 caracteres):"
 
+    # STEP 5: título
     if step == 5:
         if not (5 <= len(msg) <= 80):
             return "⚠️ El título debe tener entre 5 y 80 caracteres."
@@ -517,6 +511,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         state["step"]    = 6
         return "Cliente (empresa):"
 
+    # STEP 6: cliente
     if step == 6:
         if not valid_nonempty(msg, 2):
             return "⚠️ Cliente inválido."
@@ -524,13 +519,15 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         state["step"]     = 7
         return "Nombre completo (mínimo 2 palabras):"
 
+    # STEP 7: nombre
     if step == 7:
         if not valid_fullname(msg):
             return "⚠️ Escribe nombre y apellido (mínimo 2 palabras)."
-        ticket["nombre"]   = msg
-        state["step"]      = 8
+        ticket["nombre"] = msg
+        state["step"]    = 8
         return "Cargo:"
 
+    # STEP 8: cargo
     if step == 8:
         if not valid_nonempty(msg, 2):
             return "⚠️ Cargo inválido."
@@ -538,6 +535,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         state["step"]   = 9
         return "Número de contacto (solo números, 7–15 dígitos):"
 
+    # STEP 9: teléfono
     if step == 9:
         if not valid_phone(msg):
             return "⚠️ Número inválido. Solo dígitos (7–15)."
@@ -545,6 +543,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         state["step"]             = 10
         return "¿Tienes un número de caso previo? (sí/no)"
 
+    # STEP 10: caso previo flag
     if step == 10:
         low = msg.lower()
         if low not in {"sí", "si", "no"}:
@@ -558,10 +557,10 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         ticket["prioridad_sugerida"] = pr
         return (
             f"✅ Prioridad sugerida por IA: {pr}. ¿Confirmas? (sí/no)\n\n"
-            "💡 Recuerda que si prefieres atención humana directa, "
-            "puedes escribir 'hablar con agente' en cualquier momento."
+            "💡 Puedes escribir 'hablar con agente' en cualquier momento."
         )
 
+    # STEP 11: caso previo valor
     if step == 11:
         if not valid_nonempty(msg, 3):
             return "⚠️ Número de caso previo inválido."
@@ -571,6 +570,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         ticket["prioridad_sugerida"] = pr
         return f"✅ Prioridad sugerida por IA: {pr}. ¿Confirmas? (sí/no)"
 
+    # STEP 12: confirmar prioridad
     if step == 12:
         low = msg.lower()
         if low not in {"sí", "si", "no"}:
@@ -583,6 +583,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
             state["step"] = 13
             return "Indica prioridad (Alta / Media / Baja). La IA la validará:"
 
+    # STEP 13: prioridad manual
     if step == 13:
         pr = msg.strip().capitalize()
         if pr.lower() not in PRIORIDADES:
@@ -593,6 +594,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         state["step"] = 14
         step = 14
 
+    # STEP 14: score + resumen
     if step == 14:
         if "numero_caso" not in ticket:
             ticket["numero_caso"] = next_numero_caso()
@@ -628,6 +630,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
             + "¿Confirmas crear el ticket? (sí/no)"
         )
 
+    # STEP 999: decisión escalamiento
     if step == 999:
         low = msg.lower()
         if low not in {"sí", "si", "no"}:
@@ -639,6 +642,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         state["step"] = 15
         return build_ticket_summary(ticket) + "\n\n¿Confirmas crear el ticket? (sí/no)"
 
+    # STEP 15: confirmación final
     if step == 15:
         low = msg.lower()
         if low not in {"sí", "si", "no"}:
@@ -647,8 +651,8 @@ def process_message(message: str, user_id: str, db: Session) -> str:
             sessions.pop(user_id, None)
             return "❌ Ticket cancelado."
 
-        numero_caso  = ticket.get("numero_caso") or next_numero_caso()
-        now_iso      = datetime.utcnow().isoformat()
+        numero_caso = ticket.get("numero_caso") or next_numero_caso()
+        now_iso     = datetime.utcnow().isoformat()
         final_ticket = {
             "tipo"              : ticket.get("tipo", "Software"),
             "numero_caso"       : numero_caso,
@@ -660,7 +664,7 @@ def process_message(message: str, user_id: str, db: Session) -> str:
             "user_id"           : user_id,
             "id"                : next_id(),
             "prioridad"         : ticket.get("prioridad", "Media"),
-            "contacto": user_id,
+            "contacto"          : user_id,
             "cargo"             : ticket.get("cargo", ""),
             "marca"             : ticket.get("marca", "otro"),
             "numero_contacto"   : ticket.get("numero_contacto"),
@@ -675,19 +679,19 @@ def process_message(message: str, user_id: str, db: Session) -> str:
 
         try:
             db_ticket = models.Ticket(
-                numero_caso      = final_ticket["numero_caso"],
-                titulo           = final_ticket["titulo"],
-                cliente          = final_ticket["cliente"],
-                tipo             = final_ticket["tipo"],
-                prioridad        = final_ticket["prioridad"],
-                descripcion      = final_ticket["descripcion"],
-                contacto         = final_ticket["contacto"],
-                nombre           = final_ticket["nombre"],
-                cargo            = final_ticket["cargo"],
-                numero_contacto  = final_ticket.get("numero_contacto"),
-                caso_previo      = final_ticket.get("caso_previo"),
-                marca            = final_ticket.get("marca", "otro"),
-                estado           = final_ticket.get("estado", "Abierto"),
+                numero_caso        = final_ticket["numero_caso"],
+                titulo             = final_ticket["titulo"],
+                cliente            = final_ticket["cliente"],
+                tipo               = final_ticket["tipo"],
+                prioridad          = final_ticket["prioridad"],
+                descripcion        = final_ticket["descripcion"],
+                contacto           = final_ticket["contacto"],
+                nombre             = final_ticket["nombre"],
+                cargo              = final_ticket["cargo"],
+                numero_contacto    = final_ticket.get("numero_contacto"),
+                caso_previo        = final_ticket.get("caso_previo"),
+                marca              = final_ticket.get("marca", "otro"),
+                estado             = final_ticket.get("estado", "Abierto"),
                 ingeniero_asignado = None,
                 ultimo_comentario  = None,
             )
@@ -704,58 +708,53 @@ def process_message(message: str, user_id: str, db: Session) -> str:
         kb_resp = state.get("kb_respuesta")
         if kb_resp and state.get("sugerencia_origen") == "kb_oficial":
             try:
-                guardar_solucion(
-                    db,
-                    marca=final_ticket["marca"],
-                    error_desc=ticket["descripcion"],
-                    solucion=kb_resp,
-                    numero_caso=numero_caso,
-                )
+                guardar_solucion(db, marca=final_ticket["marca"],
+                                 error_desc=ticket["descripcion"],
+                                 solucion=kb_resp, numero_caso=numero_caso)
             except Exception:
                 pass
 
         sessions.pop(user_id, None)
 
         esc   = final_ticket.get("escalamiento", {})
-        extra = (
-            "\n🚨 Escribe 'hablar con agente' para escalar a NV1."
-            if esc.get("decision") == "ESCALAR_YA" else ""
-        )
+        extra = "\n🚨 Escribe 'hablar con agente' para escalar a NV1." if esc.get("decision") == "ESCALAR_YA" else ""
         return f"✅ Ticket creado. Número de caso: {numero_caso}{extra}"
 
     return "No entendí. Escribe tu problema o una pregunta (FAQ)."
 
 
+# ── Endpoints ──────────────────────────────────────────────────────────────────
 @app.post("/chat")
 def chat(data: ChatMessage, db: Session = Depends(get_db)):
     return {"response": process_message(data.message, data.user_id, db)}
 
+@app.get("/tickets/stats/summary")
+def tickets_stats(db: Session = Depends(get_db)):
+    total    = db.query(models.Ticket).count()
+    abiertos = db.query(models.Ticket).filter(models.Ticket.estado == "Abierto").count()
+    proceso  = db.query(models.Ticket).filter(models.Ticket.estado == "En Proceso").count()
+    cerrados = db.query(models.Ticket).filter(models.Ticket.estado == "Cerrado").count()
+    alta     = db.query(models.Ticket).filter(models.Ticket.prioridad == "Alta").count()
+    return {"total": total, "abiertos": abiertos, "en_proceso": proceso,
+            "cerrados": cerrados, "prioridad_alta": alta}
+
 @app.get("/tickets")
-def get_tickets(limit: int = 100, db: Session = Depends(get_db)):
-    db_tickets  = db.query(models.Ticket).order_by(models.Ticket.created_at.desc()).limit(limit).all()
-    db_numeros  = {t.numero_caso for t in db_tickets}
-    mem_only    = [t for t in tickets.values() if t.get("numero_caso") not in db_numeros]
-    result      = []
+def get_tickets(limit: int = 500, db: Session = Depends(get_db)):
+    db_tickets = db.query(models.Ticket).order_by(models.Ticket.created_at.desc()).limit(limit).all()
+    db_numeros = {t.numero_caso for t in db_tickets}
+    mem_only   = [t for t in tickets.values() if t.get("numero_caso") not in db_numeros]
+    result = []
     for t in db_tickets:
         result.append({
-            "id"                : t.id,
-            "numero_caso"       : t.numero_caso,
-            "titulo"            : t.titulo,
-            "cliente"           : t.cliente,
-            "tipo"              : t.tipo,
-            "prioridad"         : t.prioridad,
-            "descripcion"       : t.descripcion,
-            "contacto"          : t.contacto,
-            "nombre"            : t.nombre,
-            "cargo"             : t.cargo,
-            "marca"             : t.marca,
-            "numero_contacto"   : t.numero_contacto,
-            "caso_previo"       : t.caso_previo,
-            "estado"            : t.estado,
-            "ingeniero_asignado": t.ingeniero_asignado,
-            "ultimo_comentario" : t.ultimo_comentario,
-            "created_at"        : t.created_at.isoformat() if t.created_at else None,
-            "updated_at"        : t.updated_at.isoformat() if t.updated_at else None,
+            "id": t.id, "numero_caso": t.numero_caso, "titulo": t.titulo,
+            "cliente": t.cliente, "tipo": t.tipo, "prioridad": t.prioridad,
+            "descripcion": t.descripcion, "contacto": t.contacto,
+            "nombre": t.nombre, "cargo": t.cargo, "marca": t.marca,
+            "numero_contacto": t.numero_contacto, "caso_previo": t.caso_previo,
+            "estado": t.estado, "ingeniero_asignado": t.ingeniero_asignado,
+            "ultimo_comentario": t.ultimo_comentario,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
         })
     result.extend(mem_only)
     return result
@@ -766,151 +765,102 @@ def get_notifications(user_id: str):
 
 @app.get("/ticket/{numero_caso}")
 def get_ticket(numero_caso: str, db: Session = Depends(get_db)):
-
-    t_db = db.query(models.Ticket).filter(
-        models.Ticket.numero_caso == numero_caso
-    ).first()
-
+    t_db = db.query(models.Ticket).filter(models.Ticket.numero_caso == numero_caso).first()
     if t_db:
-        return {
-            "ok": True,
-            "ticket": {
-                "id": t_db.id,
-                "numero_caso": t_db.numero_caso,
-                "titulo": t_db.titulo,
-                "cliente": t_db.cliente,
-                "tipo": t_db.tipo,
-                "prioridad": t_db.prioridad,
-                "descripcion": t_db.descripcion,
-                "contacto": t_db.contacto,
-                "nombre": t_db.nombre,
-                "cargo": t_db.cargo,
-                "marca": t_db.marca,
-                "numero_contacto": t_db.numero_contacto,
-                "caso_previo": t_db.caso_previo,
-                "estado": t_db.estado,
-                "ingeniero_asignado": t_db.ingeniero_asignado,
-                "ultimo_comentario": t_db.ultimo_comentario,
-                "created_at": t_db.created_at.isoformat() if t_db.created_at else None,
-                "updated_at": t_db.updated_at.isoformat() if t_db.updated_at else None,
-            }
-        }
-
+        return {"ok": True, "ticket": {
+            "id": t_db.id, "numero_caso": t_db.numero_caso, "titulo": t_db.titulo,
+            "cliente": t_db.cliente, "tipo": t_db.tipo, "prioridad": t_db.prioridad,
+            "descripcion": t_db.descripcion, "contacto": t_db.contacto,
+            "nombre": t_db.nombre, "cargo": t_db.cargo, "marca": t_db.marca,
+            "numero_contacto": t_db.numero_contacto, "caso_previo": t_db.caso_previo,
+            "estado": t_db.estado, "ingeniero_asignado": t_db.ingeniero_asignado,
+            "ultimo_comentario": t_db.ultimo_comentario,
+            "created_at": t_db.created_at.isoformat() if t_db.created_at else None,
+            "updated_at": t_db.updated_at.isoformat() if t_db.updated_at else None,
+        }}
     if numero_caso in tickets:
         return {"ok": True, "ticket": tickets[numero_caso]}
-
     return {"ok": False, "error": "numero_caso no existe"}
-
 
 @app.post("/ticket/{numero_caso}/status")
 def update_status(numero_caso: str, payload: dict = Body(...), db: Session = Depends(get_db)):
-
     estado  = (payload.get("estado") or "").strip()
     user_id = (payload.get("user_id") or "").strip()
-
     if not estado or not user_id:
         return {"ok": False, "error": "Faltan campos"}
 
-    # =========================
-    # 🟡 DB
-    # =========================
-    t_db = db.query(models.Ticket).filter(
-        models.Ticket.numero_caso == numero_caso
-    ).first()
-
+    t_db = db.query(models.Ticket).filter(models.Ticket.numero_caso == numero_caso).first()
     if t_db:
-        t_db.estado = estado
-        t_db.updated_at = datetime.utcnow()
-
+        t_db.estado            = estado
+        t_db.updated_at        = datetime.utcnow()
         t_db.ingeniero_asignado = payload.get("ingeniero_asignado", t_db.ingeniero_asignado)
-        t_db.ultimo_comentario = payload.get("ultimo_comentario", t_db.ultimo_comentario)
-
+        t_db.ultimo_comentario  = payload.get("ultimo_comentario", t_db.ultimo_comentario)
         db.commit()
         db.refresh(t_db)
-
-        notify(
-            user_id,
+        notify(user_id, (
             f"📦 ACTUALIZACIÓN DEL TICKET\n"
             f"🧾 Caso: {t_db.numero_caso}\n"
             f"📍 Estado: {t_db.estado}\n"
             f"🧑‍💻 Ingeniero: {t_db.ingeniero_asignado or 'Sin asignar'}\n"
             f"💬 Último comentario: {t_db.ultimo_comentario or 'Sin comentarios'}\n"
             f"🕐 Actualizado: {t_db.updated_at.strftime('%d/%m/%Y %H:%M')}"
-        )
-
+        ))
         return {"ok": True, "numero_caso": numero_caso, "estado": estado}
 
-    # =========================
-    # 🟡 MEMORIA
-    # =========================
     if numero_caso not in tickets:
         return {"ok": False, "error": "numero_caso no existe"}
-
     ticket = tickets[numero_caso]
-
-    ticket["estado"] = estado
-    ticket["updated_at"] = datetime.utcnow().isoformat()
-
-    ticket["ingeniero_asignado"] = payload.get(
-        "ingeniero_asignado",
-        ticket.get("ingeniero_asignado")
-    )
-
-    ticket["ultimo_comentario"] = payload.get(
-        "ultimo_comentario",
-        ticket.get("ultimo_comentario")
-    )
-
-    notify(
-        user_id,
+    ticket["estado"]             = estado
+    ticket["updated_at"]         = datetime.utcnow().isoformat()
+    ticket["ingeniero_asignado"] = payload.get("ingeniero_asignado", ticket.get("ingeniero_asignado"))
+    ticket["ultimo_comentario"]  = payload.get("ultimo_comentario",  ticket.get("ultimo_comentario"))
+    notify(user_id, (
         f"📦 ACTUALIZACIÓN DEL TICKET\n"
         f"🧾 Caso: {ticket['numero_caso']}\n"
         f"📍 Estado: {ticket['estado']}\n"
         f"🧑‍💻 Ingeniero: {ticket.get('ingeniero_asignado') or 'Sin asignar'}\n"
         f"💬 Último comentario: {ticket.get('ultimo_comentario') or 'Sin comentarios'}\n"
         f"🕐 Actualizado: {ticket.get('updated_at')}"
-    )
-
+    ))
     return {"ok": True, "numero_caso": numero_caso, "estado": estado}
-
-
 
 @app.put("/tickets/{ticket_id}")
 def update_ticket(ticket_id: int, payload: dict = Body(...), db: Session = Depends(get_db)):
     t_db = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
+
     if not t_db:
         t_mem = next((t for t in tickets.values() if t.get("id") == ticket_id), None)
         if not t_mem:
             raise HTTPException(status_code=404, detail="Ticket no encontrado")
-
         estado  = (payload.get("estado") or "").strip()
         user_id = (payload.get("user_id") or "").strip()
         if not estado or not user_id:
             raise HTTPException(status_code=422, detail="Faltan campos")
-
         t_mem["estado"]     = estado
         t_mem["updated_at"] = datetime.utcnow().isoformat()
         if payload.get("ingeniero_asignado") is not None:
             t_mem["ingeniero_asignado"] = payload["ingeniero_asignado"]
         if payload.get("ultimo_comentario") is not None:
             t_mem["ultimo_comentario"] = payload["ultimo_comentario"]
-
         notify(user_id, f"🔔 Caso {t_mem['numero_caso']} → {estado}")
-        cliente_user_id = t_mem.get("user_id")
-        if cliente_user_id:
-            mensajes = {
-                "Abierto"    : f"📋 Tu caso {t_mem['numero_caso']} ha sido reabierto.",
-                "En Proceso" : f"⚙️ Tu caso {t_mem['numero_caso']} está siendo atendido.",
-                "Cerrado"    : f"✅ Tu caso {t_mem['numero_caso']} ha sido cerrado.",
-            }
-            notify(cliente_user_id, mensajes.get(estado, f"🔔 Tu caso {t_mem['numero_caso']} cambió a: {estado}"))
+        cliente_uid = t_mem.get("user_id")
+        if cliente_uid:
+            iconos = {"Abierto": "📋", "En Proceso": "⚙️", "Cerrado": "✅"}
+            notify(cliente_uid, (
+                f"{iconos.get(estado,'🔔')} ACTUALIZACIÓN DE TU TICKET\n"
+                f"🧾 Caso               : {t_mem['numero_caso']}\n"
+                f"📍 Estado             : {estado}\n"
+                f"🧑‍💻 Ingeniero asignado : {t_mem.get('ingeniero_asignado') or 'Sin asignar'}\n"
+                f"💬 Último comentario  : {t_mem.get('ultimo_comentario') or 'Sin comentarios'}\n"
+                f"🕐 Creado             : {_fmt_dt(t_mem.get('created_at'))}\n"
+                f"🔄 Última actualiz.   : {_fmt_dt(t_mem.get('updated_at'))}"
+            ))
         return t_mem
 
     estado  = (payload.get("estado") or "").strip()
     user_id = (payload.get("user_id") or "").strip()
     if not estado or not user_id:
         raise HTTPException(status_code=422, detail="Faltan campos")
-
     t_db.estado     = estado
     t_db.updated_at = datetime.utcnow()
     if payload.get("ingeniero_asignado") is not None:
@@ -919,37 +869,28 @@ def update_ticket(ticket_id: int, payload: dict = Body(...), db: Session = Depen
         t_db.ultimo_comentario = payload["ultimo_comentario"]
     db.commit()
     db.refresh(t_db)
-
     notify(user_id, f"🔔 Caso {t_db.numero_caso} → {estado}")
-    cliente_user_id = t_db.contacto
-    if cliente_user_id:
-        mensajes = {
-            "Abierto"    : f"📋 Tu caso {t_db.numero_caso} ha sido reabierto. Nuestro equipo lo revisará pronto.",
-            "En Proceso" : f"⚙️ Buenas noticias, tu caso {t_db.numero_caso} está siendo atendido por un agente. Pronto tendrás una solución.",
-            "Cerrado"    : f"✅ Tu caso {t_db.numero_caso} ha sido resuelto y cerrado. Si el problema persiste escríbenos de nuevo.",
-        }
-        texto = mensajes.get(estado, f"🔔 Tu caso {t_db.numero_caso} cambió a: {estado}")
-        notify(cliente_user_id, texto)
-
+    if t_db.contacto:
+        iconos = {"Abierto": "📋", "En Proceso": "⚙️", "Cerrado": "✅"}
+        notify(t_db.contacto, (
+            f"{iconos.get(estado,'🔔')} ACTUALIZACIÓN DE TU TICKET\n"
+            f"🧾 Caso               : {t_db.numero_caso}\n"
+            f"📍 Estado             : {estado}\n"
+            f"🧑‍💻 Ingeniero asignado : {t_db.ingeniero_asignado or 'Sin asignar'}\n"
+            f"💬 Último comentario  : {t_db.ultimo_comentario or 'Sin comentarios'}\n"
+            f"🕐 Creado             : {_fmt_dt(t_db.created_at)}\n"
+            f"🔄 Última actualiz.   : {_fmt_dt(t_db.updated_at)}"
+        ))
     return {
-        "id"                : t_db.id,
-        "numero_caso"       : t_db.numero_caso,
-        "titulo"            : t_db.titulo,
-        "cliente"           : t_db.cliente,
-        "tipo"              : t_db.tipo,
-        "prioridad"         : t_db.prioridad,
-        "descripcion"       : t_db.descripcion,
-        "contacto"          : t_db.contacto,
-        "nombre"            : t_db.nombre,
-        "cargo"             : t_db.cargo,
-        "marca"             : t_db.marca,
-        "numero_contacto"   : t_db.numero_contacto,
-        "caso_previo"       : t_db.caso_previo,
-        "estado"            : t_db.estado,
-        "ingeniero_asignado": t_db.ingeniero_asignado,
-        "ultimo_comentario" : t_db.ultimo_comentario,
-        "created_at"        : t_db.created_at.isoformat() if t_db.created_at else None,
-        "updated_at"        : t_db.updated_at.isoformat() if t_db.updated_at else None,
+        "id": t_db.id, "numero_caso": t_db.numero_caso, "titulo": t_db.titulo,
+        "cliente": t_db.cliente, "tipo": t_db.tipo, "prioridad": t_db.prioridad,
+        "descripcion": t_db.descripcion, "contacto": t_db.contacto,
+        "nombre": t_db.nombre, "cargo": t_db.cargo, "marca": t_db.marca,
+        "numero_contacto": t_db.numero_contacto, "caso_previo": t_db.caso_previo,
+        "estado": t_db.estado, "ingeniero_asignado": t_db.ingeniero_asignado,
+        "ultimo_comentario": t_db.ultimo_comentario,
+        "created_at": t_db.created_at.isoformat() if t_db.created_at else None,
+        "updated_at": t_db.updated_at.isoformat() if t_db.updated_at else None,
     }
 
 @app.delete("/tickets/{ticket_id}")
@@ -961,10 +902,7 @@ def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
         db.commit()
         tickets.pop(numero_caso, None)
         return {"ok": True, "deleted_id": ticket_id}
-
-    numero_caso = next(
-        (k for k, t in tickets.items() if t.get("id") == ticket_id), None
-    )
+    numero_caso = next((k for k, t in tickets.items() if t.get("id") == ticket_id), None)
     if not numero_caso:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
     del tickets[numero_caso]
@@ -982,6 +920,11 @@ def listar_soluciones(marca: str = None, db: Session = Depends(get_db)):
          "veces_usado": s.veces_usado, "creado_en": str(s.creado_en)}
         for s in q.order_by(SolucionKB.veces_usado.desc()).limit(50).all()
     ]}
+
+@app.post("/handoff")
+def handoff(payload: dict = Body(...)):
+    user_id = (payload.get("user_id") or "").strip()
+    return {"ok": True, "context": sessions.get(user_id, {}).get("ticket", {})}
 
 @app.get("/")
 def root():
